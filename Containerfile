@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 # install requirements
 RUN apt-get clean
@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy required files.
 WORKDIR /app
 COPY pyproject.toml pyproject.toml
+COPY .git .git
 COPY src src
 COPY README.md README.md
 
