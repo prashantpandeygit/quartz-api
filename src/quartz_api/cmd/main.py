@@ -220,6 +220,7 @@ def _create_server(conf: ConfigTree) -> FastAPI:
     return server
 
 
+
 def run() -> None:
     """Run the API using a uvicorn server."""
     # Get the application configuration from the environment
