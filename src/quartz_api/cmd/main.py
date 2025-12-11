@@ -33,15 +33,16 @@ import importlib.metadata
 import logging
 import pathlib
 import sys
-from collections.abc import Generator
+from collections.abc import Awaitable, Callable, Generator
 from contextlib import asynccontextmanager
 from typing import Any
 
 import uvicorn
 from dp_sdk.ocf import dp
-from fastapi import FastAPI, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
+from fastapi.security import HTTPAuthorizationCredentials
 from grpclib.client import Channel
 from pydantic import BaseModel
 from pyhocon import ConfigFactory, ConfigTree
@@ -166,6 +167,7 @@ def _create_server(conf: ConfigTree) -> FastAPI:
             dsn=conf.get_string("sentry.dsn"),
             environment=conf.get_string("sentry.environment"),
             traces_sample_rate=1,
+            send_default_pii=True,
         )
 
         sentry_sdk.set_tag("server_name", "quartz_api")
@@ -189,19 +191,51 @@ def _create_server(conf: ConfigTree) -> FastAPI:
     # Customize the OpenAPI schema
     server.openapi = lambda: _custom_openapi(server)
 
+    # Store auth instance for middleware
+    auth_instance = None
+
     # Override dependencies according to configuration
     match (conf.get_string("auth0.domain"), conf.get_string("auth0.audience")):
         case (_, "") | ("", _):
-            server.dependency_overrides[auth.get_auth] = auth.DummyAuth()
+            auth_instance = auth.DummyAuth()
+            server.dependency_overrides[auth.get_auth] = auth_instance
             log.warning("disabled authentication. NOT recommended for production")
         case (domain, audience):
-            server.dependency_overrides[auth.get_auth] = auth.Auth0(
+            auth_instance = auth.Auth0(
                 domain=domain,
                 api_audience=audience,
                 algorithm="RS256",
             )
+            server.dependency_overrides[auth.get_auth] = auth_instance
         case _:
             raise ValueError("Invalid Auth0 configuration")
+
+
+# middleware to add user id and email to sentry
+    @server.middleware("http")
+    async def add_user_details_to_sentry(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        if auth_instance is not None and not isinstance(auth_instance, auth.DummyAuth):
+            try:
+                authorization = request.headers.get("Authorization", "")
+                if authorization.startswith("Bearer "):
+                    token = authorization.replace("Bearer ", "")
+                    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+                    payload = auth_instance(request, credentials)
+                    if payload:
+                        import sentry_sdk
+                        sentry_sdk.set_user({
+                            "id": payload.get("sub"),
+                            "email": payload.get(auth.EMAIL_KEY),
+                        })
+            except Exception:
+                # Silently fail to not break requests
+                log.debug("Could not extract user for Sentry")
+
+        response = await call_next(request)
+        return response
 
     timezone: str = conf.get_string("api.timezone")
     server.dependency_overrides[models.get_timezone] = lambda: timezone
@@ -218,7 +252,6 @@ def _create_server(conf: ConfigTree) -> FastAPI:
     server.add_middleware(time.TimerMiddleware)
 
     return server
-
 
 
 def run() -> None:
