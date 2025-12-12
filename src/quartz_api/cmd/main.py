@@ -33,16 +33,16 @@ import importlib.metadata
 import logging
 import pathlib
 import sys
-from collections.abc import Awaitable, Callable, Generator
+from collections.abc import Generator
 from contextlib import asynccontextmanager
 from typing import Any
 
+import sentry_sdk
 import uvicorn
 from dp_sdk.ocf import dp
-from fastapi import FastAPI, Request, Response, status
+from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
-from fastapi.security import HTTPAuthorizationCredentials
 from grpclib.client import Channel
 from pydantic import BaseModel
 from pyhocon import ConfigFactory, ConfigTree
@@ -51,7 +51,7 @@ from starlette.staticfiles import StaticFiles
 
 from quartz_api.internal import models, service
 from quartz_api.internal.backends import DataPlatformClient, DummyClient, QuartzClient
-from quartz_api.internal.middleware import audit, auth, time
+from quartz_api.internal.middleware import audit, auth, sentry, time
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG, stream=sys.stdout)
@@ -161,7 +161,6 @@ def _create_server(conf: ConfigTree) -> FastAPI:
 
     # Setup sentry, if configured
     if conf.get_string("sentry.dsn") != "":
-        import sentry_sdk
 
         sentry_sdk.init(
             dsn=conf.get_string("sentry.dsn"),
@@ -210,33 +209,6 @@ def _create_server(conf: ConfigTree) -> FastAPI:
         case _:
             raise ValueError("Invalid Auth0 configuration")
 
-
-# middleware to add user id and email to sentry
-    @server.middleware("http")
-    async def add_user_details_to_sentry(
-        request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
-    ) -> Response:
-        if auth_instance is not None and not isinstance(auth_instance, auth.DummyAuth):
-            try:
-                authorization = request.headers.get("Authorization", "")
-                if authorization.startswith("Bearer "):
-                    token = authorization.replace("Bearer ", "")
-                    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
-                    payload = auth_instance(request, credentials)
-                    if payload:
-                        import sentry_sdk
-                        sentry_sdk.set_user({
-                            "id": payload.get("sub"),
-                            "email": payload.get(auth.EMAIL_KEY),
-                        })
-            except Exception:
-                # Silently fail to not break requests
-                log.debug("Could not extract user for Sentry")
-
-        response = await call_next(request)
-        return response
-
     timezone: str = conf.get_string("api.timezone")
     server.dependency_overrides[models.get_timezone] = lambda: timezone
 
@@ -250,6 +222,10 @@ def _create_server(conf: ConfigTree) -> FastAPI:
     )
     server.add_middleware(audit.RequestLoggerMiddleware)
     server.add_middleware(time.TimerMiddleware)
+
+    # add sentry user middleware if auth gets configured
+    if auth_instance is not None and not isinstance(auth_instance, auth.DummyAuth):
+        server.add_middleware(sentry.SentryUserMiddleware, auth_instance=auth_instance)
 
     return server
 
