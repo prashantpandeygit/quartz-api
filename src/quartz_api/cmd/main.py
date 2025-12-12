@@ -222,10 +222,7 @@ def _create_server(conf: ConfigTree) -> FastAPI:
     )
     server.add_middleware(audit.RequestLoggerMiddleware)
     server.add_middleware(time.TimerMiddleware)
-
-    # add sentry user middleware if auth gets configured
-    if auth_instance is not None and not isinstance(auth_instance, auth.DummyAuth):
-        server.add_middleware(sentry.SentryUserMiddleware, auth_instance=auth_instance)
+    server.add_middleware(sentry.SentryUserMiddleware, auth_instance=auth_instance)
 
     return server
 
