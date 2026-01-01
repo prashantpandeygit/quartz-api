@@ -241,7 +241,7 @@ async def get_forecast_csv(
 
 
 class GetForecastVsActualResponse(BaseModel):
-    """Response model for forecast vs actual"""
+    """Response model for forecast vs actual."""
 
     comparisons: list[models.ForecastActualComparison]
     summary: dict[str, float] | None = None
@@ -260,7 +260,7 @@ async def get_forecast_vs_actual(
     forecast_horizon_minutes: int | None = None,
     include_summary: bool = False,
 ) -> GetForecastVsActualResponse:
-    """get forecast and actual values at once"""
+    """Get forecast and actual values at once."""
     forecast_response = await get_forecast_timeseries_route(
         source=source,
         region=region,

@@ -66,7 +66,7 @@ class ForecastActualComparison(BaseModel):
     forecast_created_time: dt.datetime | None = None
 
     def to_timezone(self, tz: str) -> "ForecastActualComparison":
-        """Convert time to specific timezone"""
+        """Convert time to specific timezone."""
         return ForecastActualComparison(
             time=self.time.astimezone(tz=ZoneInfo(key=tz)),
             forecast_power_kw=self.forecast_power_kw,
