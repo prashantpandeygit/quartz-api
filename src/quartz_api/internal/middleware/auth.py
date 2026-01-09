@@ -69,6 +69,9 @@ class AuthClient:
             try:
                 claims = await validator_dependency(request)
             except HTTPException as e:
+                if e.status_code == 400:
+                    raise HTTPException(status_code=401, detail=e.detail) from e
+
                 if e.status_code == 403:
                     log.info(f"Unauthorized access attempt: {e.detail}")
 
