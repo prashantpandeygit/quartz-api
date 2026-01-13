@@ -73,6 +73,10 @@ class LocationPropertiesBase(BaseModel):
         json_schema_extra={"description": "The location's total capacity in kw"},
         ge=0,
     )
+    metadata: dict[str, str|int|dict] = Field(
+        {},
+        json_schema_extra={"description": "Metadata associated with the location"},
+    )
 
 class SiteProperties(LocationPropertiesBase):
     """Properties specific to a site."""
@@ -121,6 +125,26 @@ class Substation(SubstationProperties):
         ...,
         json_schema_extra={"description": "The unique identifier for the substation."},
     )
+
+class OneDatetimeManyForecastValues(BaseModel):
+    """One datetime with many forecast values."""
+
+    datetime_utc: dt.datetime = Field(..., description="The timestamp of the forecast")
+    forecast_values_kw: dict[int|str, float] = Field(
+        ...,
+        description="List of forecasts by ids. Key is forecast id, value is generation_kw. "
+        "We keep this as a dictionary to keep the size of the file small.",
+    )
+
+class Region(BaseModel):
+    """Region metadata."""
+
+    region_name: str = Field(..., json_schema_extra={"description": "The name of the region."})
+    region_metadata: dict | None = Field(
+        None,
+        json_schema_extra={"description": "Additional metadata about the region."},
+    )
+
 
 
 def get_timezone() -> str:
